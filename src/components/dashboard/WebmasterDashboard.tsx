@@ -5,19 +5,14 @@ import { UserTable } from './UserTable';
 import { UserForm } from './UserForm';
 import { WebmasterDeleteDialog } from './WebmasterDeleteDialog';
 import { UserDeleteDialog } from './UserDeleteDialog';
-import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { useUserStore, useFranchiseStats } from '@/lib/store';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { Plus, RefreshCw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { cn } from '@/lib/utils';
-import type { User } from '@/lib/types';
+import { RefreshCw, Plus } from 'lucide-react';
+import { useUserStore } from '@/lib/store';
+import { useFranchiseStats } from '@/lib/store/franchiseStats';
+import { getNextUserId } from '@/lib/utils';
+import type { User } from '@/lib/store/types';
 
 interface UserFormData {
   username: string;
@@ -45,18 +40,29 @@ export function WebmasterDashboard() {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
 
   // Create a combined refresh function
-  const refreshDashboard = useCallback(() => {
+  const refreshDashboard = useCallback(async () => {
     try {
-      // Refresh franchise stats
-      refreshStats();
+      // Refresh franchise stats and user data
+      await Promise.all([
+        refreshStats(),
+        useUserStore.getState().loadInitialData()
+      ]);
 
       // Update user activity statuses
-      users.forEach(user => {
+      const updatePromises = users.map(user => {
         if (user.role !== 'webmaster') {
           const lastActive = new Date(user.lastActive);
           const isOnline = (new Date().getTime() - lastActive.getTime()) < 5 * 60 * 1000; // 5 minutes threshold
-          updateUserActivity(user.username, isOnline);
+          return updateUserActivity(user.username, isOnline);
         }
+        return Promise.resolve();
+      });
+
+      await Promise.all(updatePromises);
+
+      toast({
+        title: "Success",
+        description: "Dashboard data refreshed successfully",
       });
     } catch (error) {
       console.error('Error refreshing dashboard:', error);
@@ -68,17 +74,34 @@ export function WebmasterDashboard() {
     }
   }, [refreshStats, users, updateUserActivity, toast]);
 
+  // Only load initial data on mount
+  const loadInitialData = useCallback(async () => {
+    try {
+      await useUserStore.getState().loadInitialData();
+    } catch (error) {
+      console.error('Error loading initial data:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load initial data",
+        variant: "destructive",
+      });
+    }
+  }, [toast]);
+
   useEffect(() => {
-    // Initial load of stats and user activity
-    refreshDashboard();
-  }, [refreshDashboard]);
+    loadInitialData();
+  }, [loadInitialData]);
 
   const handleAddUser = async (data: UserFormData) => {
     try {
+      // Generate unique ID based on role
+      const userId = getNextUserId(users, data.role);
+      
       // Add default values for new user
       const newUser: User = {
         ...data,
         id: crypto.randomUUID(),
+        username: userId, // Use the generated ID as the username
         lastActive: new Date().toISOString(),
         isOnline: true,
         teammates: [],
@@ -146,10 +169,21 @@ export function WebmasterDashboard() {
 
   const handleToggleStatus = async (username: string, currentStatus: boolean) => {
     try {
+      // Prevent toggle for webmaster users
+      const user = users.find(u => u.username === username);
+      if (user?.role === 'webmaster') {
+        toast({
+          title: "Action Denied",
+          description: "Cannot modify webmaster status",
+          variant: "destructive",
+        });
+        return;
+      }
+
       await toggleUserStatus(username);
       toast({
         title: "Success",
-        description: `User ${currentStatus ? 'deactivated' : 'activated'} successfully`,
+        description: `User ${!currentStatus ? 'activated' : 'deactivated'} successfully`,
       });
     } catch (error) {
       console.error('Error toggling user status:', error);
@@ -165,16 +199,36 @@ export function WebmasterDashboard() {
     <div className="space-y-6">
       <div className="space-y-6">
         <div className="flex justify-between items-center">
-          <div>
+          <div onClick={() => navigate('/dashboard/users')} className="cursor-pointer hover:opacity-80">
             <h1 className="text-3xl font-bold tracking-tight">User Management</h1>
             <p className="text-muted-foreground">
               Manage user accounts and permissions
             </p>
+            <div className="text-sm text-muted-foreground mt-2">
+              {lastRefresh && (
+                <p>Last updated {formatDistanceToNow(new Date(lastRefresh), { addSuffix: true })}</p>
+              )}
+            </div>
           </div>
-          <Button onClick={() => setIsAddDialogOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add User
-          </Button>
+          <div className="flex items-center gap-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={refreshDashboard}
+              disabled={isLoading}
+              className="gap-2"
+            >
+              <RefreshCw className={cn(
+                "h-4 w-4",
+                isLoading && "animate-spin"
+              )} />
+              Refresh Stats
+            </Button>
+            <Button onClick={() => setIsAddDialogOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add User
+            </Button>
+          </div>
         </div>
 
         {/* Franchise Stats */}
@@ -203,19 +257,6 @@ export function WebmasterDashboard() {
                 <h3 className="text-lg font-semibold">Total Franchises</h3>
                 <p className="text-3xl font-bold mt-2">{stats.totalFranchises}</p>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={refreshDashboard}
-                disabled={isLoading}
-                className="gap-2"
-              >
-                <RefreshCw className={cn(
-                  "h-4 w-4",
-                  isLoading && "animate-spin"
-                )} />
-                Refresh Stats
-              </Button>
             </div>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <span className="inline-block w-2 h-2 rounded-full bg-orange-500"></span>

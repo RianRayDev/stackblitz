@@ -1,8 +1,10 @@
-import { Eye, EyeOff, Pencil, Trash2, CheckCircle2, XCircle, Shield, Store, Clock, MinusCircle } from 'lucide-react';
+import { Eye, EyeOff, Pencil, Trash2, CheckCircle2, XCircle, Shield, Store, Clock, MinusCircle, MoreVertical, Edit, Star, Search, Filter, ChevronDown, ChevronUp, ArrowUpDown } from 'lucide-react';
 import { User } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import {
   Table,
@@ -14,12 +16,24 @@ import {
 } from "@/components/ui/table";
 import { formatDistanceToNow } from 'date-fns';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
+import { useState, useMemo } from 'react';
 
 interface UserTableProps {
   users: User[];
   onEdit: (user: User) => void;
   onDelete: (user: User) => void;
   onToggleStatus: (username: string, currentStatus: boolean) => void;
+  isWebmaster: boolean;
+  currentUser?: User;
+}
+
+type SortField = 'username' | 'email' | 'role' | 'lastActive';
+type SortOrder = 'asc' | 'desc';
+
+interface SortConfig {
+  field: SortField;
+  order: SortOrder;
 }
 
 const getRoleBadgeVariant = (role: User['role']) => {
@@ -87,30 +101,145 @@ const getActivityStatus = (user: User) => {
   };
 };
 
-export function UserTable({ users, onEdit, onDelete, onToggleStatus }: UserTableProps) {
+export function UserTable({ users, onEdit, onDelete, onToggleStatus, isWebmaster, currentUser }: UserTableProps) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [roleFilter, setRoleFilter] = useState<User['role'] | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [sortConfig, setSortConfig] = useState<SortConfig>({ field: 'username', order: 'asc' });
+
+  const handleSort = (field: SortField) => {
+    setSortConfig(current => ({
+      field,
+      order: current.field === field && current.order === 'asc' ? 'desc' : 'asc'
+    }));
+  };
+
+  const filteredAndSortedUsers = useMemo(() => {
+    return users
+      .filter(user => {
+        const matchesSearch = (
+          user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          user.franchiseName?.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+        const matchesRole = roleFilter === 'all' || user.role === roleFilter;
+        const matchesStatus = statusFilter === 'all' || 
+          (statusFilter === 'active' && user.isActive) ||
+          (statusFilter === 'inactive' && !user.isActive);
+        
+        return matchesSearch && matchesRole && matchesStatus;
+      })
+      .sort((a, b) => {
+        const order = sortConfig.order === 'asc' ? 1 : -1;
+        switch (sortConfig.field) {
+          case 'username':
+            return order * a.username.localeCompare(b.username);
+          case 'email':
+            return order * a.email.localeCompare(b.email);
+          case 'role':
+            return order * getRoleDisplay(a.role).localeCompare(getRoleDisplay(b.role));
+          case 'lastActive':
+            return order * (new Date(a.lastActive).getTime() - new Date(b.lastActive).getTime());
+          default:
+            return 0;
+        }
+      });
+  }, [users, searchTerm, roleFilter, statusFilter, sortConfig]);
+
+  const getSortIcon = (field: SortField) => {
+    if (sortConfig.field !== field) return <ArrowUpDown className="h-4 w-4" />;
+    return sortConfig.order === 'asc' ? 
+      <ChevronUp className="h-4 w-4" /> : 
+      <ChevronDown className="h-4 w-4" />;
+  };
+
   return (
-    <div className="rounded-xl border bg-card">
-      <div className="max-h-[400px] overflow-y-auto">
-        <Table>
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+          <Input
+            placeholder="Search users..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+        <div className="flex gap-4">
+          <Select value={roleFilter} onValueChange={(value: User['role'] | 'all') => setRoleFilter(value)}>
+            <SelectTrigger className="w-[180px]">
+              <Filter className="w-4 h-4 mr-2" />
+              <SelectValue placeholder="Filter by role" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Roles</SelectItem>
+              <SelectItem value="webmaster">Webmaster</SelectItem>
+              <SelectItem value="distributing_franchise">Franchise</SelectItem>
+              <SelectItem value="customer">Customer</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={statusFilter} onValueChange={(value: 'all' | 'active' | 'inactive') => setStatusFilter(value)}>
+            <SelectTrigger className="w-[180px]">
+              <Filter className="w-4 h-4 mr-2" />
+              <SelectValue placeholder="Filter by status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="inactive">Inactive</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="rounded-xl border bg-card">
+        <div className="max-h-[400px] overflow-y-auto">
+          <Table>
           <TableHeader className="sticky top-0 bg-muted/50 backdrop-blur-sm">
             <TableRow className="hover:bg-muted/70 transition-colors">
-              <TableHead className="w-[250px]">User</TableHead>
-              <TableHead className="w-[250px]">Email</TableHead>
-              <TableHead>Role</TableHead>
+              <TableHead 
+                className="w-[250px] cursor-pointer"
+                onClick={() => handleSort('username')}
+              >
+                <div className="flex items-center gap-2">
+                  User
+                  {getSortIcon('username')}
+                </div>
+              </TableHead>
+              <TableHead 
+                className="w-[250px] cursor-pointer"
+                onClick={() => handleSort('email')}
+              >
+                <div className="flex items-center gap-2">
+                  Email
+                  {getSortIcon('email')}
+                </div>
+              </TableHead>
+              <TableHead
+                className="cursor-pointer"
+                onClick={() => handleSort('role')}
+              >
+                <div className="flex items-center gap-2">
+                  Role
+                  {getSortIcon('role')}
+                </div>
+              </TableHead>
               <TableHead>Activity</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead className="text-right sticky right-0 bg-muted/50 backdrop-blur-sm">Actions</TableHead>
+              <TableHead className="text-right sticky right-0 bg-muted/50 backdrop-blur-sm w-[200px]">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {users.length === 0 ? (
+            {filteredAndSortedUsers.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="h-24 text-center">
-                  No users found
+                  {searchTerm || roleFilter !== 'all' || statusFilter !== 'all'
+                    ? "No users match your search criteria"
+                    : "No users found"}
                 </TableCell>
               </TableRow>
             ) : (
-              users.map((user) => {
+              filteredAndSortedUsers.map((user) => {
                 const RoleIcon = getRoleIcon(user.role);
                 const activityStatus = getActivityStatus(user);
                 const ActivityIcon = activityStatus.icon;
@@ -235,26 +364,67 @@ export function UserTable({ users, onEdit, onDelete, onToggleStatus }: UserTable
                       </div>
                     </TableCell>
                     <TableCell className="text-right sticky right-0 bg-background/80 backdrop-blur-sm">
-                      <div className="flex items-center justify-end gap-2">
-                        {user.role !== 'webmaster' && (
-                          <>
+                      <div className="flex items-center justify-end gap-1">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => onEdit(user)}
+                              className={cn(
+                                "h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity",
+                                "hover:bg-gray-50"
+                              )}
                             >
-                              <Pencil className="h-4 w-4" />
+                              <MoreVertical className="h-4 w-4" />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => onDelete(user)}
-                              className="text-destructive hover:text-destructive"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </>
-                        )}
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-48">
+                            {(isWebmaster || currentUser?.id === user.id) && (
+                              <DropdownMenuItem 
+                                onClick={() => onEdit(user)}
+                                className="hover:bg-blue-50 hover:text-blue-600"
+                              >
+                                <Edit className="h-4 w-4 mr-2" />
+                                Edit User
+                              </DropdownMenuItem>
+                            )}
+                            
+                            {isWebmaster && user.role !== 'webmaster' && (
+                              <>
+                                <DropdownMenuItem
+                                  onClick={() => onDelete(user)}
+                                  className="hover:bg-red-50 hover:text-red-600"
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Delete User
+                                </DropdownMenuItem>
+                                
+                                <DropdownMenuSeparator />
+                                
+                                <DropdownMenuItem 
+                                  onClick={() => onToggleStatus(user.username, user.isActive)}
+                                >
+                                  {user.isActive ? (
+                                    <>
+                                      <XCircle className="h-4 w-4 mr-2" />
+                                      Deactivate User
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CheckCircle2 className="h-4 w-4 mr-2" />
+                                      Activate User
+                                    </>
+                                  )}
+                                </DropdownMenuItem>
+                                
+                                <DropdownMenuItem className="text-blue-600">
+                                  <Shield className="h-4 w-4 mr-2" />
+                                  Make Admin
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -262,7 +432,8 @@ export function UserTable({ users, onEdit, onDelete, onToggleStatus }: UserTable
               })
             )}
           </TableBody>
-        </Table>
+          </Table>
+        </div>
       </div>
     </div>
   );

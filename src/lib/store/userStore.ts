@@ -1,5 +1,17 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { 
+  collection, 
+  doc, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  getDocs,
+  query,
+  where,
+  serverTimestamp
+} from 'firebase/firestore';
+import { db } from '../firebase';
 import type { User } from '../types';
 
 // Initial users for development
@@ -50,75 +62,176 @@ export const useUserStore = create<UserState>()(
 
       loadInitialData: async () => {
         try {
-          if (get().users.length === 0) {
-            set({ users: initialUsers });
+          const usersSnapshot = await getDocs(collection(db, 'users'));
+          const users = usersSnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          })) as User[];
+          
+          if (users.length === 0) {
+            // Initialize with default users if no users exist
+            const initializedUsers = await Promise.all(
+              initialUsers.map(async (user) => {
+                const docRef = await addDoc(collection(db, 'users'), {
+                  ...user,
+                  createdAt: serverTimestamp(),
+                  updatedAt: serverTimestamp()
+                });
+                return { ...user, id: docRef.id };
+              })
+            );
+            set({ users: initializedUsers });
+          } else {
+            set({ users });
           }
         } catch (error) {
           console.error('Error loading initial data:', error);
-          set({ users: initialUsers });
+          // Fall back to initial users if Firebase fails
+          if (get().users.length === 0) {
+            set({ users: initialUsers });
+          }
         }
       },
 
-      addUser: (user) => {
-        set((state) => ({
-          users: [...state.users, user]
-        }));
+      addUser: async (user) => {
+        try {
+          const docRef = await addDoc(collection(db, 'users'), {
+            ...user,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          });
+          
+          set(state => ({
+            users: [...state.users, { ...user, id: docRef.id }]
+          }));
+        } catch (error) {
+          console.error('Error adding user:', error);
+          throw error;
+        }
       },
 
-      updateUser: (username, updates) => {
-        set((state) => ({
-          users: state.users.map((user) =>
-            user.username === username ? { ...user, ...updates } : user
-          )
-        }));
+      updateUser: async (username, updates) => {
+        try {
+          const userQuery = query(collection(db, 'users'), where('username', '==', username));
+          const userDocs = await getDocs(userQuery);
+          
+          if (!userDocs.empty) {
+            const userDoc = userDocs.docs[0];
+            await updateDoc(doc(db, 'users', userDoc.id), {
+              ...updates,
+              updatedAt: serverTimestamp()
+            });
+            
+            set(state => ({
+              users: state.users.map(user =>
+                user.username === username ? { ...user, ...updates } : user
+              )
+            }));
+          }
+        } catch (error) {
+          console.error('Error updating user:', error);
+          throw error;
+        }
       },
 
-      deleteUser: (username) => {
-        set((state) => ({
-          users: state.users.filter((user) => user.username !== username)
-        }));
+      deleteUser: async (username) => {
+        try {
+          const userQuery = query(collection(db, 'users'), where('username', '==', username));
+          const userDocs = await getDocs(userQuery);
+          
+          if (!userDocs.empty) {
+            const userDoc = userDocs.docs[0];
+            await deleteDoc(doc(db, 'users', userDoc.id));
+            
+            set(state => ({
+              users: state.users.filter(user => user.username !== username)
+            }));
+          }
+        } catch (error) {
+          console.error('Error deleting user:', error);
+          throw error;
+        }
       },
 
-      toggleUserStatus: (username) => {
-        set((state) => ({
-          users: state.users.map((user) =>
-            user.username === username
-              ? {
-                  ...user,
-                  isActive: !user.isActive,
-                  activationStatus: user.isActive ? 'inactive' : 'active'
-                }
-              : user
-          )
-        }));
+      toggleUserStatus: async (username) => {
+        const user = get().users.find(u => u.username === username);
+        if (user) {
+          try {
+            const newStatus = !user.isActive;
+            await updateDoc(doc(db, 'users', user.id), {
+              isActive: newStatus,
+              activationStatus: newStatus ? 'active' : 'inactive',
+              updatedAt: serverTimestamp()
+            });
+            
+            set(state => ({
+              users: state.users.map(u => 
+                u.username === username 
+                  ? { ...u, isActive: newStatus, activationStatus: newStatus ? 'active' : 'inactive' }
+                  : u
+              )
+            }));
+          } catch (error) {
+            console.error('Error toggling user status:', error);
+            throw error;
+          }
+        }
       },
 
-      updateUserActivity: (username, isOnline) => {
-        set((state) => ({
-          users: state.users.map((user) =>
-            user.username === username
-              ? {
-                  ...user,
-                  isOnline,
-                  lastActive: new Date().toISOString()
-                }
-              : user
-          )
-        }));
+      updateUserActivity: async (username, isOnline) => {
+        try {
+          const userQuery = query(collection(db, 'users'), where('username', '==', username));
+          const userDocs = await getDocs(userQuery);
+          
+          if (!userDocs.empty) {
+            const userDoc = userDocs.docs[0];
+            const lastActive = new Date().toISOString();
+            
+            await updateDoc(doc(db, 'users', userDoc.id), {
+              isOnline,
+              lastActive,
+              updatedAt: serverTimestamp()
+            });
+            
+            set(state => ({
+              users: state.users.map(user =>
+                user.username === username
+                  ? { ...user, isOnline, lastActive }
+                  : user
+              )
+            }));
+          }
+        } catch (error) {
+          console.error('Error updating user activity:', error);
+          throw error;
+        }
       },
 
-      activateUser: (username) => {
-        set((state) => ({
-          users: state.users.map((user) =>
-            user.username === username
-              ? {
-                  ...user,
-                  activationStatus: 'active',
-                  isActive: true
-                }
-              : user
-          )
-        }));
+      activateUser: async (username) => {
+        try {
+          const userQuery = query(collection(db, 'users'), where('username', '==', username));
+          const userDocs = await getDocs(userQuery);
+          
+          if (!userDocs.empty) {
+            const userDoc = userDocs.docs[0];
+            await updateDoc(doc(db, 'users', userDoc.id), {
+              activationStatus: 'active',
+              isActive: true,
+              updatedAt: serverTimestamp()
+            });
+            
+            set(state => ({
+              users: state.users.map(user =>
+                user.username === username
+                  ? { ...user, activationStatus: 'active', isActive: true }
+                  : user
+              )
+            }));
+          }
+        } catch (error) {
+          console.error('Error activating user:', error);
+          throw error;
+        }
       },
 
       setCurrentUser: (user) => {

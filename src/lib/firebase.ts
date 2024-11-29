@@ -9,13 +9,13 @@ import {
 } from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAwtJHh3C30-BQZQrmTEeaEZnqwG99tD7E",
-  authDomain: "snuli-hub.firebaseapp.com",
-  projectId: "snuli-hub",
-  storageBucket: "snuli-hub.firebasestorage.app",
-  messagingSenderId: "166781891279",
-  appId: "1:166781891279:web:043883f2503ce14e823dba",
-  measurementId: "G-YBV54D1FLS"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
 // Initialize Firebase
